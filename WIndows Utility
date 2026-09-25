@@ -1,0 +1,1546 @@
+#Requires -Version 5.1
+
+# ============================================================
+# CURSED UTIL 2.0
+# Windows Maintenance / Gaming / Tweaking Console
+# ============================================================
+
+$ErrorActionPreference = "SilentlyContinue"
+
+# ============================================================
+# THEME
+# ============================================================
+
+try {
+    $Host.UI.RawUI.WindowTitle = "CURSED // Windows Utility 2.0"
+    $Host.UI.RawUI.BackgroundColor = "Black"
+    $Host.UI.RawUI.ForegroundColor = "White"
+} catch {}
+
+# ============================================================
+# BASIC HELPERS
+# ============================================================
+
+function Clear-Cursed {
+    Clear-Host
+}
+
+function Pause-Cursed {
+    Write-Host ""
+    Write-Host "  [ ENTER ] " -ForegroundColor White -NoNewline
+    Write-Host "continue..." -ForegroundColor DarkGray
+    Read-Host | Out-Null
+}
+
+function Write-Line {
+    param([int]$Length = 72)
+    Write-Host ("  " + ("─" * $Length)) -ForegroundColor DarkGray
+}
+
+function Test-CursedAdmin {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+
+    return $principal.IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator
+    )
+}
+
+function Require-Admin {
+    if (-not (Test-CursedAdmin)) {
+        Write-Host ""
+        Write-Host "  [!] Administrator privileges are required." -ForegroundColor White
+        Write-Host "  [!] Restart Cursed as Administrator." -ForegroundColor DarkGray
+        Pause-Cursed
+        return $false
+    }
+
+    return $true
+}
+
+function Write-Panel {
+    param(
+        [string]$Title,
+        [string[]]$Lines
+    )
+
+    $width = 68
+
+    Write-Host ""
+    Write-Host ("  ╭" + ("─" * $width) + "╮") -ForegroundColor White
+    Write-Host ("  │ " + $Title.PadRight($width - 1) + "│") -ForegroundColor White
+    Write-Host ("  ├" + ("─" * $width) + "┤") -ForegroundColor White
+
+    foreach ($line in $Lines) {
+        if ($null -eq $line) {
+            $line = ""
+        }
+
+        if ($line.Length -gt ($width - 3)) {
+            $line = $line.Substring(0, $width - 3)
+        }
+
+        Write-Host ("  │ " + $line.PadRight($width - 1) + "│") -ForegroundColor White
+    }
+
+    Write-Host ("  ╰" + ("─" * $width) + "╯") -ForegroundColor White
+}
+
+# ============================================================
+# HEADER
+# ============================================================
+
+function Show-CursedHeader {
+    Clear-Cursed
+
+    Write-Host ""
+    Write-Host "          ██████╗██╗   ██╗██████╗ ███████╗██████╗ " -ForegroundColor White
+    Write-Host "         ██╔════╝██║   ██║██╔══██╗██╔════╝██╔══██╗" -ForegroundColor White
+    Write-Host "         ██║     ██║   ██║██████╔╝█████╗  ██║  ██║" -ForegroundColor White
+    Write-Host "         ██║     ██║   ██║██╔══██╗██╔══╝  ██║  ██║" -ForegroundColor White
+    Write-Host "         ╚██████╗╚██████╔╝██║  ██║███████╗██████╔╝" -ForegroundColor White
+    Write-Host "          ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═════╝ " -ForegroundColor White
+
+    Write-Host ""
+    Write-Host "                 C U R S E D   U T I L" -ForegroundColor White
+    Write-Host "           WINDOWS / GAMING / TWEAKING SUITE" -ForegroundColor DarkGray
+    Write-Host ""
+
+    Write-Line
+}
+
+# ============================================================
+# SYSTEM INFORMATION
+# ============================================================
+
+function Get-CursedCPUUsage {
+    try {
+        $cpu = Get-CimInstance Win32_Processor |
+            Measure-Object -Property LoadPercentage -Average
+
+        return [math]::Round($cpu.Average, 0)
+    }
+    catch {
+        return 0
+    }
+}
+
+function Get-CursedRAM {
+    try {
+        $os = Get-CimInstance Win32_OperatingSystem
+
+        $total = [math]::Round(
+            $os.TotalVisibleMemorySize / 1MB,
+            1
+        )
+
+        $free = [math]::Round(
+            $os.FreePhysicalMemory / 1MB,
+            1
+        )
+
+        $used = [math]::Round(
+            $total - $free,
+            1
+        )
+
+        $percent = if ($total -gt 0) {
+            [math]::Round(($used / $total) * 100, 0)
+        }
+        else {
+            0
+        }
+
+        return "$used / $total GB ($percent%)"
+    }
+    catch {
+        return "Unavailable"
+    }
+}
+
+function Get-CursedStorage {
+    try {
+        $disk = Get-CimInstance Win32_LogicalDisk `
+            -Filter "DeviceID='C:'"
+
+        if ($disk) {
+            $size = [math]::Round($disk.Size / 1GB, 1)
+            $free = [math]::Round($disk.FreeSpace / 1GB, 1)
+            $used = [math]::Round($size - $free, 1)
+
+            return "$used / $size GB | $free GB free"
+        }
+    }
+    catch {}
+
+    return "Unavailable"
+}
+
+function Get-CursedSystemInfo {
+
+    $computer = Get-CimInstance Win32_ComputerSystem
+    $os = Get-CimInstance Win32_OperatingSystem
+    $cpu = Get-CimInstance Win32_Processor |
+        Select-Object -First 1
+
+    $gpu = Get-CimInstance Win32_VideoController |
+        Where-Object {
+            $_.Name -and
+            $_.Name -notmatch "Microsoft Basic Display"
+        } |
+        Select-Object -First 1
+
+    $uptime = (Get-Date) - $os.LastBootUpTime
+
+    $admin = if (Test-CursedAdmin) {
+        "YES"
+    }
+    else {
+        "NO"
+    }
+
+    $cpuName = if ($cpu.Name) {
+        $cpu.Name.Trim()
+    }
+    else {
+        "Unknown"
+    }
+
+    $gpuName = if ($gpu.Name) {
+        $gpu.Name.Trim()
+    }
+    else {
+        "Unknown"
+    }
+
+    return @(
+        "PC       : $($computer.Name)"
+        "USER     : $env:USERNAME"
+        "OS       : $($os.Caption)"
+        "BUILD    : $($os.BuildNumber)"
+        ""
+        "CPU      : $cpuName"
+        "CPU LOAD : $(Get-CursedCPUUsage)%"
+        "GPU      : $gpuName"
+        "RAM      : $(Get-CursedRAM)"
+        "STORAGE  : $(Get-CursedStorage)"
+        ""
+        "UPTIME   : $([int]$uptime.TotalDays)d $($uptime.Hours)h $($uptime.Minutes)m"
+        "ADMIN    : $admin"
+    )
+}
+
+# ============================================================
+# REGISTRY BACKUP
+# ============================================================
+
+function Backup-CursedRegistry {
+    param(
+        [string]$Name = "CursedBackup"
+    )
+
+    $folder = Join-Path $env:USERPROFILE "CursedBackups"
+
+    if (-not (Test-Path $folder)) {
+        New-Item -ItemType Directory -Path $folder -Force |
+            Out-Null
+    }
+
+    $file = Join-Path `
+        $folder `
+        "$Name-$(Get-Date -Format 'yyyyMMdd-HHmmss').reg"
+
+    reg.exe export `
+        "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer" `
+        "$file" `
+        /y | Out-Null
+
+    Write-Host ""
+    Write-Host "  [+] Registry backup created:" -ForegroundColor White
+    Write-Host "      $file" -ForegroundColor DarkGray
+
+    return $file
+}
+
+function New-CursedRestorePoint {
+
+    if (-not (Require-Admin)) {
+        return
+    }
+
+    Write-Host ""
+    Write-Host "  Creating Windows restore point..." -ForegroundColor White
+
+    try {
+        Checkpoint-Computer `
+            -Description "Cursed Utility Backup" `
+            -RestorePointType "MODIFY_SETTINGS"
+
+        Write-Host "  [+] Restore point created." -ForegroundColor White
+    }
+    catch {
+        Write-Host "  [-] Could not create restore point." -ForegroundColor White
+    }
+
+    Pause-Cursed
+}
+
+# ============================================================
+# GAMING
+# ============================================================
+
+function Set-CursedGameMode {
+
+    $path = "HKCU:\Software\Microsoft\GameBar"
+
+    New-Item -Path $path -Force | Out-Null
+
+    New-ItemProperty `
+        -Path $path `
+        -Name "AutoGameModeEnabled" `
+        -PropertyType DWord `
+        -Value 1 `
+        -Force | Out-Null
+
+    Write-Host ""
+    Write-Host "  [+] Windows Game Mode enabled." -ForegroundColor White
+
+    Pause-Cursed
+}
+
+function Disable-CursedGameDVR {
+
+    $path = "HKCU:\System\GameConfigStore"
+
+    New-Item -Path $path -Force | Out-Null
+
+    New-ItemProperty `
+        -Path $path `
+        -Name "GameDVR_Enabled" `
+        -PropertyType DWord `
+        -Value 0 `
+        -Force | Out-Null
+
+    $capture = "HKCU:\Software\Microsoft\Windows\CurrentVersion\GameDVR"
+
+    New-Item -Path $capture -Force | Out-Null
+
+    New-ItemProperty `
+        -Path $capture `
+        -Name "AppCaptureEnabled" `
+        -PropertyType DWord `
+        -Value 0 `
+        -Force | Out-Null
+
+    Write-Host ""
+    Write-Host "  [+] Background Game DVR capture disabled." -ForegroundColor White
+
+    Pause-Cursed
+}
+
+function Set-CursedHAGS {
+
+    if (-not (Require-Admin)) {
+        return
+    }
+
+    $path = "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers"
+
+    New-ItemProperty `
+        -Path $path `
+        -Name "HwSchMode" `
+        -PropertyType DWord `
+        -Value 2 `
+        -Force | Out-Null
+
+    Write-Host ""
+    Write-Host "  [+] Hardware-accelerated GPU scheduling enabled." -ForegroundColor White
+    Write-Host "  [!] Restart Windows for the change to take effect." -ForegroundColor DarkGray
+
+    Pause-Cursed
+}
+
+function Set-CursedMouseAcceleration {
+
+    $path = "HKCU:\Control Panel\Mouse"
+
+    New-ItemProperty `
+        -Path $path `
+        -Name "MouseSpeed" `
+        -PropertyType String `
+        -Value "0" `
+        -Force | Out-Null
+
+    New-ItemProperty `
+        -Path $path `
+        -Name "MouseThreshold1" `
+        -PropertyType String `
+        -Value "0" `
+        -Force | Out-Null
+
+    New-ItemProperty `
+        -Path $path `
+        -Name "MouseThreshold2" `
+        -PropertyType String `
+        -Value "0" `
+        -Force | Out-Null
+
+    Write-Host ""
+    Write-Host "  [+] Mouse acceleration disabled." -ForegroundColor White
+
+    Pause-Cursed
+}
+
+function Set-CursedHighPerformance {
+
+    if (-not (Require-Admin)) {
+        return
+    }
+
+    powercfg /setactive SCHEME_MIN
+
+    Write-Host ""
+    Write-Host "  [+] High Performance power plan activated." -ForegroundColor White
+
+    Pause-Cursed
+}
+
+function Clear-CursedShaderCache {
+
+    Write-Host ""
+    Write-Host "  Cleaning shader caches..." -ForegroundColor White
+
+    $paths = @(
+        "$env:LOCALAPPDATA\D3DSCache\*"
+        "$env:LOCALAPPDATA\NVIDIA\DXCache\*"
+        "$env:LOCALAPPDATA\NVIDIA\GLCache\*"
+        "$env:LOCALAPPDATA\AMD\DxCache\*"
+        "$env:LOCALAPPDATA\AMD\GLCache\*"
+    )
+
+    foreach ($path in $paths) {
+        Remove-Item `
+            $path `
+            -Recurse `
+            -Force `
+            -ErrorAction SilentlyContinue
+    }
+
+    Write-Host "  [+] Shader cache cleanup completed." -ForegroundColor White
+
+    Pause-Cursed
+}
+
+function Show-Gaming {
+
+    while ($true) {
+
+        Show-CursedHeader
+
+        Write-Panel -Title "GAMING CENTER" -Lines @(
+            "[1] Enable Windows Game Mode"
+            "[2] Disable Background Game DVR"
+            "[3] Enable GPU Scheduling"
+            "[4] Disable Mouse Acceleration"
+            "[5] High Performance Power Plan"
+            "[6] Clean Shader Caches"
+            "[7] Gaming Network Test"
+            "[8] Gaming Hardware Info"
+            "[B] Back"
+        )
+
+        $choice = Read-Host "  Select"
+
+        switch ($choice.ToUpper()) {
+
+            "1" { Set-CursedGameMode }
+            "2" { Disable-CursedGameDVR }
+            "3" { Set-CursedHAGS }
+            "4" { Set-CursedMouseAcceleration }
+            "5" { Set-CursedHighPerformance }
+            "6" { Clear-CursedShaderCache }
+
+            "7" {
+                Write-Host ""
+                Write-Host "  Testing Cloudflare latency..." -ForegroundColor White
+                Test-Connection 1.1.1.1 -Count 5
+                Pause-Cursed
+            }
+
+            "8" {
+                Get-CimInstance Win32_VideoController |
+                    Select-Object Name, DriverVersion, VideoModeDescription |
+                    Format-Table -AutoSize
+
+                Get-CimInstance Win32_Processor |
+                    Select-Object Name, NumberOfCores, NumberOfLogicalProcessors |
+                    Format-Table -AutoSize
+
+                Pause-Cursed
+            }
+
+            "B" {
+                return
+            }
+        }
+    }
+}
+
+# ============================================================
+# REGISTRY TWEAKS
+# ============================================================
+
+function Set-CursedDarkMode {
+
+    Backup-CursedRegistry "DarkMode" | Out-Null
+
+    $path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+
+    New-ItemProperty `
+        -Path $path `
+        -Name "AppsUseLightTheme" `
+        -PropertyType DWord `
+        -Value 0 `
+        -Force | Out-Null
+
+    New-ItemProperty `
+        -Path $path `
+        -Name "SystemUsesLightTheme" `
+        -PropertyType DWord `
+        -Value 0 `
+        -Force | Out-Null
+
+    Write-Host "  [+] Dark mode enabled." -ForegroundColor White
+
+    Pause-Cursed
+}
+
+function Set-CursedFileExtensions {
+
+    Backup-CursedRegistry "Explorer" | Out-Null
+
+    $path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
+
+    New-ItemProperty `
+        -Path $path `
+        -Name "HideFileExt" `
+        -PropertyType DWord `
+        -Value 0 `
+        -Force | Out-Null
+
+    Write-Host "  [+] File extensions enabled." -ForegroundColor White
+
+    Pause-Cursed
+}
+
+function Set-CursedClassicContextMenu {
+
+    Backup-CursedRegistry "ContextMenu" | Out-Null
+
+    $path = "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}"
+
+    New-Item -Path $path -Force | Out-Null
+
+    New-Item `
+        -Path "$path\InprocServer32" `
+        -Force | Out-Null
+
+    Write-Host ""
+    Write-Host "  [+] Classic context-menu configuration applied." -ForegroundColor White
+    Write-Host "  [!] Restart Explorer to see the change." -ForegroundColor DarkGray
+
+    Pause-Cursed
+}
+
+function Set-CursedVisualEffects {
+
+    Backup-CursedRegistry "VisualEffects" | Out-Null
+
+    $path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects"
+
+    New-ItemProperty `
+        -Path $path `
+        -Name "VisualFXSetting" `
+        -PropertyType DWord `
+        -Value 2 `
+        -Force | Out-Null
+
+    Write-Host ""
+    Write-Host "  [+] Visual-effects configuration changed." -ForegroundColor White
+
+    Pause-Cursed
+}
+
+function Set-CursedExplorerSettings {
+
+    Backup-CursedRegistry "ExplorerSettings" | Out-Null
+
+    $path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
+
+    New-ItemProperty `
+        -Path $path `
+        -Name "LaunchTo" `
+        -PropertyType DWord `
+        -Value 1 `
+        -Force | Out-Null
+
+    New-ItemProperty `
+        -Path $path `
+        -Name "HideFileExt" `
+        -PropertyType DWord `
+        -Value 0 `
+        -Force | Out-Null
+
+    New-ItemProperty `
+        -Path $path `
+        -Name "Hidden" `
+        -PropertyType DWord `
+        -Value 1 `
+        -Force | Out-Null
+
+    Write-Host ""
+    Write-Host "  [+] Explorer settings applied." -ForegroundColor White
+
+    Pause-Cursed
+}
+
+function Show-Registry {
+
+    while ($true) {
+
+        Show-CursedHeader
+
+        Write-Panel -Title "REGISTRY TWEAK CENTER" -Lines @(
+            "[1] Enable Dark Mode"
+            "[2] Show File Extensions"
+            "[3] Classic Context Menu"
+            "[4] Performance Visual Effects"
+            "[5] Explorer Configuration"
+            "[6] Create Restore Point"
+            "[7] Open Registry Editor"
+            "[8] Open Backup Folder"
+            "[B] Back"
+        )
+
+        $choice = Read-Host "  Select"
+
+        switch ($choice.ToUpper()) {
+
+            "1" { Set-CursedDarkMode }
+            "2" { Set-CursedFileExtensions }
+            "3" { Set-CursedClassicContextMenu }
+            "4" { Set-CursedVisualEffects }
+            "5" { Set-CursedExplorerSettings }
+            "6" { New-CursedRestorePoint }
+
+            "7" {
+                Start-Process regedit.exe
+            }
+
+            "8" {
+                $folder = Join-Path $env:USERPROFILE "CursedBackups"
+
+                if (-not (Test-Path $folder)) {
+                    New-Item -ItemType Directory -Path $folder -Force |
+                        Out-Null
+                }
+
+                Start-Process explorer.exe $folder
+            }
+
+            "B" {
+                return
+            }
+        }
+    }
+}
+
+# ============================================================
+# CLEANUP
+# ============================================================
+
+function Clear-CursedTemp {
+
+    Write-Host ""
+    Write-Host "  Cleaning temporary files..." -ForegroundColor White
+
+    $locations = @(
+        "$env:TEMP\*"
+        "$env:LOCALAPPDATA\Temp\*"
+        "$env:WINDIR\Temp\*"
+    )
+
+    foreach ($location in $locations) {
+        Remove-Item `
+            $location `
+            -Recurse `
+            -Force `
+            -ErrorAction SilentlyContinue
+    }
+
+    Write-Host "  [+] Temporary files cleaned." -ForegroundColor White
+
+    Pause-Cursed
+}
+
+function Clear-CursedWindowsUpdate {
+
+    if (-not (Require-Admin)) {
+        return
+    }
+
+    Write-Host ""
+    Write-Host "  Resetting Windows Update cache..." -ForegroundColor White
+
+    Stop-Service wuauserv -Force
+    Stop-Service bits -Force
+
+    Remove-Item `
+        "$env:WINDIR\SoftwareDistribution\Download\*" `
+        -Recurse `
+        -Force `
+        -ErrorAction SilentlyContinue
+
+    Start-Service bits
+    Start-Service wuauserv
+
+    Write-Host "  [+] Windows Update cache reset." -ForegroundColor White
+
+    Pause-Cursed
+}
+
+function Show-Cleanup {
+
+    while ($true) {
+
+        Show-CursedHeader
+
+        Write-Panel -Title "CLEANUP CENTER" -Lines @(
+            "[1] Clean Temporary Files"
+            "[2] Clean Shader Caches"
+            "[3] Reset Windows Update Cache"
+            "[4] Empty Recycle Bin"
+            "[5] Run Disk Cleanup"
+            "[B] Back"
+        )
+
+        $choice = Read-Host "  Select"
+
+        switch ($choice.ToUpper()) {
+
+            "1" {
+                Clear-CursedTemp
+            }
+
+            "2" {
+                Clear-CursedShaderCache
+            }
+
+            "3" {
+                Clear-CursedWindowsUpdate
+            }
+
+            "4" {
+                Clear-RecycleBin `
+                    -Force `
+                    -ErrorAction SilentlyContinue
+
+                Write-Host "  [+] Recycle Bin emptied." -ForegroundColor White
+                Pause-Cursed
+            }
+
+            "5" {
+                Start-Process cleanmgr.exe
+                Pause-Cursed
+            }
+
+            "B" {
+                return
+            }
+        }
+    }
+}
+
+# ============================================================
+# PERFORMANCE
+# ============================================================
+
+function Show-Performance {
+
+    while ($true) {
+
+        Show-CursedHeader
+
+        $cpu = Get-CursedCPUUsage
+        $ram = Get-CursedRAM
+
+        Write-Panel -Title "PERFORMANCE CENTER" -Lines @(
+            "CPU LOAD : $cpu%"
+            "RAM      : $ram"
+            ""
+            "[1] Process List"
+            "[2] Top CPU Processes"
+            "[3] Top RAM Processes"
+            "[4] Startup Applications"
+            "[5] Services"
+            "[6] Power Plans"
+            "[7] Resource Monitor"
+            "[8] Performance Monitor"
+            "[B] Back"
+        )
+
+        $choice = Read-Host "  Select"
+
+        switch ($choice.ToUpper()) {
+
+            "1" {
+                Get-Process |
+                    Sort-Object CPU -Descending |
+                    Select-Object -First 30 Name, Id, CPU |
+                    Format-Table -AutoSize
+
+                Pause-Cursed
+            }
+
+            "2" {
+                Get-Process |
+                    Sort-Object CPU -Descending |
+                    Select-Object -First 15 Name, CPU |
+                    Format-Table -AutoSize
+
+                Pause-Cursed
+            }
+
+            "3" {
+                Get-Process |
+                    Sort-Object WorkingSet64 -Descending |
+                    Select-Object -First 15 Name,
+                        @{N="RAM_MB";E={[math]::Round($_.WorkingSet64 / 1MB,1)}} |
+                    Format-Table -AutoSize
+
+                Pause-Cursed
+            }
+
+            "4" {
+                Get-CimInstance Win32_StartupCommand |
+                    Select-Object Name, Command, Location |
+                    Format-Table -Wrap -AutoSize
+
+                Pause-Cursed
+            }
+
+            "5" {
+                Get-Service |
+                    Sort-Object Status, DisplayName |
+                    Format-Table Status, Name, DisplayName -AutoSize
+
+                Pause-Cursed
+            }
+
+            "6" {
+                powercfg /list
+                Pause-Cursed
+            }
+
+            "7" {
+                Start-Process resmon.exe
+            }
+
+            "8" {
+                Start-Process perfmon.exe
+            }
+
+            "B" {
+                return
+            }
+        }
+    }
+}
+
+# ============================================================
+# NETWORK
+# ============================================================
+
+function Show-Network {
+
+    while ($true) {
+
+        Show-CursedHeader
+
+        Write-Panel -Title "NETWORK CENTER" -Lines @(
+            "[1] IP Configuration"
+            "[2] DNS Cache"
+            "[3] Flush DNS"
+            "[4] Ping Cloudflare"
+            "[5] Ping Google"
+            "[6] Trace Route"
+            "[7] Network Adapters"
+            "[8] Routing Table"
+            "[9] ARP Table"
+            "[B] Back"
+        )
+
+        $choice = Read-Host "  Select"
+
+        switch ($choice.ToUpper()) {
+
+            "1" {
+                ipconfig /all
+                Pause-Cursed
+            }
+
+            "2" {
+                ipconfig /displaydns
+                Pause-Cursed
+            }
+
+            "3" {
+                ipconfig /flushdns
+
+                Write-Host "  [+] DNS cache flushed." -ForegroundColor White
+                Pause-Cursed
+            }
+
+            "4" {
+                Test-Connection 1.1.1.1 -Count 5
+                Pause-Cursed
+            }
+
+            "5" {
+                Test-Connection 8.8.8.8 -Count 5
+                Pause-Cursed
+            }
+
+            "6" {
+                tracert 1.1.1.1
+                Pause-Cursed
+            }
+
+            "7" {
+                Get-NetAdapter |
+                    Format-Table Name,
+                        InterfaceDescription,
+                        Status,
+                        LinkSpeed `
+                        -AutoSize
+
+                Pause-Cursed
+            }
+
+            "8" {
+                route print
+                Pause-Cursed
+            }
+
+            "9" {
+                arp -a
+                Pause-Cursed
+            }
+
+            "B" {
+                return
+            }
+        }
+    }
+}
+
+# ============================================================
+# WINDOWS
+# ============================================================
+
+function Show-Windows {
+
+    while ($true) {
+
+        Show-CursedHeader
+
+        Write-Panel -Title "WINDOWS CENTER" -Lines @(
+            "[1] Windows Update"
+            "[2] Activation Status"
+            "[3] Windows Version"
+            "[4] Installed Updates"
+            "[5] Optional Features"
+            "[6] Windows Security"
+            "[7] Firewall"
+            "[8] Environment Variables"
+            "[B] Back"
+        )
+
+        $choice = Read-Host "  Select"
+
+        switch ($choice.ToUpper()) {
+
+            "1" {
+                Start-Process "ms-settings:windowsupdate"
+                Pause-Cursed
+            }
+
+            "2" {
+                cscript.exe `
+                    "$env:SystemRoot\System32\slmgr.vbs" `
+                    /xpr
+
+                Pause-Cursed
+            }
+
+            "3" {
+                Get-ComputerInfo |
+                    Select-Object WindowsProductName,
+                        WindowsVersion,
+                        OsBuildNumber |
+                    Format-List
+
+                Pause-Cursed
+            }
+
+            "4" {
+                Get-HotFix |
+                    Sort-Object InstalledOn -Descending |
+                    Select-Object -First 30 |
+                    Format-Table -AutoSize
+
+                Pause-Cursed
+            }
+
+            "5" {
+                Get-WindowsOptionalFeature -Online |
+                    Where-Object State -eq "Enabled" |
+                    Select-Object FeatureName, State |
+                    Format-Table -AutoSize
+
+                Pause-Cursed
+            }
+
+            "6" {
+                Start-Process "windowsdefender:"
+            }
+
+            "7" {
+                Start-Process "wf.msc"
+            }
+
+            "8" {
+                Get-ChildItem Env: |
+                    Sort-Object Name |
+                    Format-Table Name, Value -AutoSize
+
+                Pause-Cursed
+            }
+
+            "B" {
+                return
+            }
+        }
+    }
+}
+
+# ============================================================
+# REPAIR
+# ============================================================
+
+function Show-Repair {
+
+    while ($true) {
+
+        Show-CursedHeader
+
+        Write-Panel -Title "REPAIR CORE" -Lines @(
+            "[1] System File Checker"
+            "[2] DISM RestoreHealth"
+            "[3] DISM CheckHealth"
+            "[4] CHKDSK Scan"
+            "[5] Reset Network Stack"
+            "[6] Windows Update Repair"
+            "[B] Back"
+        )
+
+        $choice = Read-Host "  Select"
+
+        switch ($choice.ToUpper()) {
+
+            "1" {
+                if (Require-Admin) {
+                    sfc /scannow
+                    Pause-Cursed
+                }
+            }
+
+            "2" {
+                if (Require-Admin) {
+                    DISM /Online /Cleanup-Image /RestoreHealth
+                    Pause-Cursed
+                }
+            }
+
+            "3" {
+                if (Require-Admin) {
+                    DISM /Online /Cleanup-Image /CheckHealth
+                    Pause-Cursed
+                }
+            }
+
+            "4" {
+                chkdsk C: /scan
+                Pause-Cursed
+            }
+
+            "5" {
+                if (Require-Admin) {
+                    netsh winsock reset
+                    netsh int ip reset
+
+                    Write-Host ""
+                    Write-Host "  [+] Network stack reset." -ForegroundColor White
+                    Write-Host "  [!] Reboot may be required." -ForegroundColor DarkGray
+
+                    Pause-Cursed
+                }
+            }
+
+            "6" {
+                Clear-CursedWindowsUpdate
+            }
+
+            "B" {
+                return
+            }
+        }
+    }
+}
+
+# ============================================================
+# APPLICATIONS
+# ============================================================
+
+function Install-CursedApp {
+    param(
+        [string]$Id,
+        [string]$Name
+    )
+
+    Write-Host ""
+    Write-Host "  Installing $Name..." -ForegroundColor White
+
+    winget install `
+        --id $Id `
+        --exact `
+        --accept-source-agreements `
+        --accept-package-agreements
+
+    Write-Host ""
+    Write-Host "  [+] Installation command completed." -ForegroundColor White
+
+    Pause-Cursed
+}
+
+function Show-Applications {
+
+    while ($true) {
+
+        Show-CursedHeader
+
+        Write-Panel -Title "APPLICATION CENTER" -Lines @(
+            "[1] Firefox"
+            "[2] 7-Zip"
+            "[3] VLC"
+            "[4] Discord"
+            "[5] Steam"
+            "[6] VS Code"
+            "[7] Git"
+            "[8] Everything"
+            "[9] PowerToys"
+            "[A] Upgrade Installed Apps"
+            "[B] Back"
+        )
+
+        $choice = Read-Host "  Select"
+
+        switch ($choice.ToUpper()) {
+
+            "1" { Install-CursedApp "Mozilla.Firefox" "Firefox" }
+            "2" { Install-CursedApp "7zip.7zip" "7-Zip" }
+            "3" { Install-CursedApp "VideoLAN.VLC" "VLC" }
+            "4" { Install-CursedApp "Discord.Discord" "Discord" }
+            "5" { Install-CursedApp "Valve.Steam" "Steam" }
+            "6" { Install-CursedApp "Microsoft.VisualStudioCode" "VS Code" }
+            "7" { Install-CursedApp "Git.Git" "Git" }
+            "8" { Install-CursedApp "voidtools.Everything" "Everything" }
+            "9" { Install-CursedApp "Microsoft.PowerToys" "PowerToys" }
+
+            "A" {
+                winget upgrade --all
+                Pause-Cursed
+            }
+
+            "B" {
+                return
+            }
+        }
+    }
+}
+
+# ============================================================
+# HARDWARE
+# ============================================================
+
+function Show-Hardware {
+
+    while ($true) {
+
+        Show-CursedHeader
+
+        Write-Panel -Title "HARDWARE CENTER" -Lines @(
+            "[1] CPU"
+            "[2] GPU"
+            "[3] RAM"
+            "[4] Disks"
+            "[5] Motherboard"
+            "[6] BIOS"
+            "[7] Network Adapters"
+            "[8] Full Hardware Report"
+            "[B] Back"
+        )
+
+        $choice = Read-Host "  Select"
+
+        switch ($choice.ToUpper()) {
+
+            "1" {
+                Get-CimInstance Win32_Processor |
+                    Format-List Name,
+                        Manufacturer,
+                        NumberOfCores,
+                        NumberOfLogicalProcessors,
+                        MaxClockSpeed,
+                        CurrentClockSpeed
+
+                Pause-Cursed
+            }
+
+            "2" {
+                Get-CimInstance Win32_VideoController |
+                    Format-List Name,
+                        DriverVersion,
+                        VideoMemoryType,
+                        AdapterRAM,
+                        VideoModeDescription
+
+                Pause-Cursed
+            }
+
+            "3" {
+                Get-CimInstance Win32_PhysicalMemory |
+                    Select-Object Manufacturer,
+                        PartNumber,
+                        Capacity,
+                        Speed |
+                    Format-Table -AutoSize
+
+                Pause-Cursed
+            }
+
+            "4" {
+                Get-CimInstance Win32_DiskDrive |
+                    Select-Object Model,
+                        InterfaceType,
+                        MediaType,
+                        Size |
+                    Format-Table -AutoSize
+
+                Pause-Cursed
+            }
+
+            "5" {
+                Get-CimInstance Win32_BaseBoard |
+                    Format-List Manufacturer,
+                        Product,
+                        Version,
+                        SerialNumber
+
+                Pause-Cursed
+            }
+
+            "6" {
+                Get-CimInstance Win32_BIOS |
+                    Format-List Manufacturer,
+                        SMBIOSBIOSVersion,
+                        ReleaseDate
+
+                Pause-Cursed
+            }
+
+            "7" {
+                Get-NetAdapter |
+                    Format-Table Name,
+                        InterfaceDescription,
+                        Status,
+                        LinkSpeed `
+                        -AutoSize
+
+                Pause-Cursed
+            }
+
+            "8" {
+                Get-ComputerInfo |
+                    Select-Object CsName,
+                        CsManufacturer,
+                        CsModel,
+                        WindowsProductName,
+                        WindowsVersion,
+                        OsBuildNumber,
+                        CsProcessors |
+                    Format-List
+
+                Pause-Cursed
+            }
+
+            "B" {
+                return
+            }
+        }
+    }
+}
+
+# ============================================================
+# TOOLS
+# ============================================================
+
+function Show-Tools {
+
+    while ($true) {
+
+        Show-CursedHeader
+
+        Write-Panel -Title "CURSED TOOLBOX" -Lines @(
+            "[1] Task Manager"
+            "[2] Device Manager"
+            "[3] Services"
+            "[4] Event Viewer"
+            "[5] Registry Editor"
+            "[6] Resource Monitor"
+            "[7] Performance Monitor"
+            "[8] Disk Management"
+            "[9] Computer Management"
+            "[A] PowerShell"
+            "[B] Command Prompt"
+            "[C] System Configuration"
+            "[D] Task Scheduler"
+            "[E] System Properties"
+            "[F] Windows Security"
+            "[B] Back"
+        )
+
+        $choice = Read-Host "  Select"
+
+        switch ($choice.ToUpper()) {
+
+            "1" { Start-Process taskmgr.exe }
+            "2" { Start-Process devmgmt.msc }
+            "3" { Start-Process services.msc }
+            "4" { Start-Process eventvwr.msc }
+            "5" { Start-Process regedit.exe }
+            "6" { Start-Process resmon.exe }
+            "7" { Start-Process perfmon.exe }
+            "8" { Start-Process diskmgmt.msc }
+            "9" { Start-Process compmgmt.msc }
+            "A" { Start-Process powershell.exe }
+            "B" { Start-Process cmd.exe }
+            "C" { Start-Process msconfig.exe }
+            "D" { Start-Process taskschd.msc }
+            "E" { Start-Process sysdm.cpl }
+            "F" { Start-Process "windowsdefender:" }
+
+            "B" {
+                return
+            }
+        }
+    }
+}
+
+# ============================================================
+# QUICK ACTIONS
+# ============================================================
+
+function Invoke-CursedQuickAction {
+    param([string]$Action)
+
+    switch ($Action) {
+
+        "DNS" {
+            ipconfig /flushdns
+            Write-Host "  [+] DNS cache flushed." -ForegroundColor White
+        }
+
+        "EXPLORER" {
+            Stop-Process -Name explorer -Force
+            Start-Process explorer.exe
+            Write-Host "  [+] Explorer restarted." -ForegroundColor White
+        }
+
+        "RECYCLE" {
+            Clear-RecycleBin -Force -ErrorAction SilentlyContinue
+            Write-Host "  [+] Recycle Bin emptied." -ForegroundColor White
+        }
+
+        "UPDATE" {
+            Start-Process "ms-settings:windowsupdate"
+        }
+
+        "TASK" {
+            Start-Process taskmgr.exe
+        }
+
+        "RESMON" {
+            Start-Process resmon.exe
+        }
+    }
+
+    Pause-Cursed
+}
+
+# ============================================================
+# DASHBOARD
+# ============================================================
+
+function Show-Dashboard {
+
+    Show-CursedHeader
+
+    $info = Get-CursedSystemInfo
+
+    Write-Panel `
+        -Title "SYSTEM STATUS" `
+        -Lines $info
+
+    $cpu = Get-CursedCPUUsage
+    $ram = Get-CursedRAM
+    $storage = Get-CursedStorage
+
+    Write-Panel -Title "LIVE PERFORMANCE" -Lines @(
+        "CPU        : $cpu%"
+        "MEMORY     : $ram"
+        "SYSTEM DISK: $storage"
+        ""
+        "STATUS     : READY"
+        "ADMIN      : $(if (Test-CursedAdmin) {'YES'} else {'NO'})"
+    )
+
+    Write-Host ""
+    Write-Host "  ╔════════════════════════════════════════════════════════════╗" -ForegroundColor White
+    Write-Host "  ║                       QUICK ACTIONS                       ║" -ForegroundColor White
+    Write-Host "  ╠════════════════════════════════════════════════════════════╣" -ForegroundColor White
+    Write-Host "  ║ [1] Flush DNS       [2] Restart Explorer                  ║" -ForegroundColor White
+    Write-Host "  ║ [3] Empty Recycle   [4] Windows Update                    ║" -ForegroundColor White
+    Write-Host "  ║ [5] Task Manager    [6] Resource Monitor                  ║" -ForegroundColor White
+    Write-Host "  ╚════════════════════════════════════════════════════════════╝" -ForegroundColor White
+
+    Write-Host ""
+    Write-Host "  ╔════════════════════════════════════════════════════════════╗" -ForegroundColor White
+    Write-Host "  ║                         MODULES                           ║" -ForegroundColor White
+    Write-Host "  ╠════════════════════════════════════════════════════════════╣" -ForegroundColor White
+    Write-Host "  ║ [G] GAMING          [R] REGISTRY       [P] PERFORMANCE    ║" -ForegroundColor White
+    Write-Host "  ║ [C] CLEANUP         [N] NETWORK        [W] WINDOWS        ║" -ForegroundColor White
+    Write-Host "  ║ [X] REPAIR          [A] APPLICATIONS   [H] HARDWARE       ║" -ForegroundColor White
+    Write-Host "  ║ [T] TOOLS                                                ║" -ForegroundColor White
+    Write-Host "  ║                                                          ║" -ForegroundColor White
+    Write-Host "  ║ [Q] EXIT                                                  ║" -ForegroundColor White
+    Write-Host "  ╚════════════════════════════════════════════════════════════╝" -ForegroundColor White
+
+    Write-Host ""
+    Write-Host "  Select: " -ForegroundColor White -NoNewline
+
+    return Read-Host
+}
+
+# ============================================================
+# MAIN LOOP
+# ============================================================
+
+while ($true) {
+
+    $choice = Show-Dashboard
+
+    switch ($choice.ToUpper()) {
+
+        "1" {
+            Invoke-CursedQuickAction "DNS"
+        }
+
+        "2" {
+            Invoke-CursedQuickAction "EXPLORER"
+        }
+
+        "3" {
+            Invoke-CursedQuickAction "RECYCLE"
+        }
+
+        "4" {
+            Invoke-CursedQuickAction "UPDATE"
+        }
+
+        "5" {
+            Invoke-CursedQuickAction "TASK"
+        }
+
+        "6" {
+            Invoke-CursedQuickAction "RESMON"
+        }
+
+        "G" {
+            Show-Gaming
+        }
+
+        "R" {
+            Show-Registry
+        }
+
+        "P" {
+            Show-Performance
+        }
+
+        "C" {
+            Show-Cleanup
+        }
+
+        "N" {
+            Show-Network
+        }
+
+        "W" {
+            Show-Windows
+        }
+
+        "X" {
+            Show-Repair
+        }
+
+        "A" {
+            Show-Applications
+        }
+
+        "H" {
+            Show-Hardware
+        }
+
+        "T" {
+            Show-Tools
+        }
+
+        "Q" {
+            Clear-Cursed
+
+            Write-Host ""
+            Write-Host "  CURSED UTIL SHUTTING DOWN..." -ForegroundColor White
+            Write-Host ""
+
+            Start-Sleep -Milliseconds 700
+            exit
+        }
+
+        default {
+            Write-Host ""
+            Write-Host "  [!] Invalid selection." -ForegroundColor White
+            Start-Sleep -Milliseconds 700
+        }
+    }
+}
